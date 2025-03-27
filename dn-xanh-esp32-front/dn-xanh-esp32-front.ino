@@ -64,14 +64,14 @@ String stateToString(State state) {
 }
 
 String wasteTypeToEsp32Url(String wasteType) {
+  if (wasteType == "ORGANIC")
+    return ORGANIC_ESP32_URL;
+
   if (wasteType == "RECYCLABLE")
     return RECYCLABLE_ESP32_URL;
 
   if (wasteType == "NON_RECYCLABLE")
     return NON_RECYCLABLE_ESP32_URL;
-
-  if (wasteType == "ORGANIC")
-    return ORGANIC_ESP32_URL;
 }
 
 void WiFiStationConnected(WiFiEvent_t event, WiFiEventInfo_t info) {
@@ -131,6 +131,7 @@ void onWebsocketEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsE
       break;
     case WS_EVT_DISCONNECT:
       Serial.printf("WebSocket client #%u disconnected\n", client->id());
+      currentClientId = 0;
       break;
     case WS_EVT_DATA:
       handleWebSocketMessage(arg, data, len);
@@ -171,6 +172,11 @@ void setup() {
 }
 
 void sendMessage(const String message) {
+  if (currentClientId == 0) {
+    Serial.println("Skip send message due to waiting for connection...");
+    return;
+  }
+
   ws.text(currentClientId, message);
   Serial.println(message);
 }
@@ -314,13 +320,13 @@ void loop() {
   // Verify wifi connection
   if (!isConnectedToWifi) return breakLoop();
 
-  // // Verify websocket connection
-  // if (currentClientId == 0) {
-  //   Serial.println("Waiting for client connect...");
-  //   state = IDLE;
+  // Verify websocket connection
+  if (currentClientId == 0) {
+    Serial.println("Waiting for client connect...");
+    state = IDLE;
 
-  //   return breakLoop();
-  // }
+    return breakLoop();
+  }
 
   // Get sensor data
   bool hasObject = checkInfraredSensor();
@@ -347,7 +353,13 @@ void loop() {
   if (state != IDLE) {
     // Check timeout
     unsigned long processingTimeConsumed = millis() - beginTime;
-    if (processingTimeConsumed > TIMEOUT) {
+
+    unsigned long timeout = TIMEOUT;
+    if (state == WAITING_ESP32_MAIN) {
+      timeout = TIMEOUT * 2;
+    }
+
+    if (processingTimeConsumed > timeout) {
       sendError("Đã quá thời gian chờ");
       setState(IDLE);
 
@@ -356,19 +368,40 @@ void loop() {
   }
 
   if (state == COLLECTING_DATA) {
-    String wasteTypePredictions[5];
+    String wasteTypePredictions[3];
+    int nilonBagCount = 0;
     JSONVar wasteTypePredictionsCount;
     for (int i = 0; i < 3; ++i) {
       // Capture & classify image
       JSONVar captureAndClassifyResponseData;
       if (!requestGet(CAMERA_BASE_URL, "/capture-and-classify", captureAndClassifyResponseData)) return breakLoop();
+      
+      // if (!captureAndClassifyResponseData["shouldClassification"]) {
+      //   JSONVar warningData;
+      //   warningData["type"] = "SENSORS_DATA";
+      //   warningData["hasObject"] = String(hasObject);
+      //   String jsonWarningData = JSON.stringify(warningData);
+      //   sendMessage(jsonWarningData);
+      // }
+
       String wasteTypePrediction = captureAndClassifyResponseData["wasteTypePrediction"];
 
       wasteTypePredictions[i] = wasteTypePrediction;
       if (JSON.typeof(wasteTypePredictionsCount[wasteTypePrediction]) == "undefined") wasteTypePredictionsCount[wasteTypePrediction] = 1;
       else wasteTypePredictionsCount[wasteTypePrediction] = ((int)wasteTypePredictionsCount[wasteTypePrediction]) + 1;
 
-      // delay(200);
+      String prediction = captureAndClassifyResponseData["prediction"];
+      Serial.printf("Prediction: %s\n", prediction);
+      if (prediction == "nilon-bag") {
+        nilonBagCount += 1;
+      }
+    }
+
+    // Check nilon bag
+    if (nilonBagCount >= 2) {
+      sendError("Không nên bỏ tất cả rác vào một túi!");
+      setState(IDLE);
+      return breakLoop();
     }
 
     // Get highest wasteType prediction
@@ -378,6 +411,7 @@ void loop() {
       if ((int)wasteTypePredictionsCount[wasteTypePrediction] > (int)wasteTypePredictionsCount[highestWasteTypePrediction])
         highestWasteTypePrediction = wasteTypePrediction;
     }
+    Serial.printf("Kết quả phân loại rác: %s\n", highestWasteTypePrediction);
 
     // Prepare ESP32 Main URL for calling
     esp32Url = wasteTypeToEsp32Url(highestWasteTypePrediction);

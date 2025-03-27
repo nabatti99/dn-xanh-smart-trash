@@ -11,20 +11,20 @@
 #define SOUND_ECHO_PIN 18
 
 // Constants
-const String EMBEDDED_SYSTEM_ID = "DN-SMT-001_RECYCLABLE"; // Change it
-const String WASTE_TYPE = "RECYCLABLE"; // Change it
-enum State {IDLE, WAITING_FOR_OPEN_DOOR, OPENING_DOOR, COLLECTING_DATA, SERVER_PROCESSING, CLAIM_REWARD, REQUESTING_FINISH};
+const String EMBEDDED_SYSTEM_ID = "DN-SMT-001_ORGANIC"; // Change it
+const String WASTE_TYPE = "ORGANIC"; // Change it
+enum State {IDLE, WAITING_FOR_OPEN_DOOR, OPENING_DOOR, COLLECTING_DATA, CLAIM_REWARD, REQUESTING_FINISH};
 const double SOUND_SPEED = 0.034;
 const unsigned long TIMEOUT = 30000;
 const String SERVER_BASE_URL = "http://api.danangxanh.top/api";
-const String CAMERA_BASE_URL = "http://192.168.137.21";
+const String FRONT_ESP32_URL = "http://192.168.137.100";
 
 // Wifi config
 const char* SSID = "minh_nguyenanh";
 const char* PASSWORD = "123456789";
 
 // Static IP config
-IPAddress localIP(192, 168, 137, 20);
+IPAddress localIP(192, 168, 137, 20); // Change it
 IPAddress gateway(192, 168, 137, 1);
 IPAddress subnet(255, 255, 255, 0);
 IPAddress primaryDNS(8, 8, 8, 8);
@@ -46,17 +46,20 @@ String stateToString(State state) {
     case IDLE:
       return "IDLE";
 
+    case WAITING_FOR_OPEN_DOOR:
+      return "WAITING_FOR_OPEN_DOOR";
+
     case OPENING_DOOR:
       return "OPENING_DOOR";
 
     case COLLECTING_DATA:
       return "COLLECTING_DATA";
 
-    case SERVER_PROCESSING:
-      return "SERVER_PROCESSING";
-
     case CLAIM_REWARD:
       return "CLAIM_REWARD";
+
+    case REQUESTING_FINISH:
+      return "REQUESTING_FINISH";
   }
 }
 
@@ -109,7 +112,7 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len) {
   }
 }
 
-void onEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t len) {
+void onWebsocketEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t len) {
   switch (type) {
     case WS_EVT_CONNECT:
       Serial.printf("WebSocket client #%u connected from %s\n", client->id(), client->remoteIP().toString().c_str());
@@ -117,6 +120,7 @@ void onEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType 
       break;
     case WS_EVT_DISCONNECT:
       Serial.printf("WebSocket client #%u disconnected\n", client->id());
+      currentClientId = 0;
       break;
     case WS_EVT_DATA:
       handleWebSocketMessage(arg, data, len);
@@ -128,7 +132,7 @@ void onEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType 
 }
 
 void initWebSocket() {
-  ws.onEvent(onEvent);
+  ws.onEvent(onWebsocketEvent);
   server.addHandler(&ws);
 }
 
@@ -153,11 +157,21 @@ void setup() {
     request->send(200, "text/plain", "DN Xanh Embedded System: " + EMBEDDED_SYSTEM_ID);
   });
 
+  server.on("/request-open-door", HTTP_POST, [](AsyncWebServerRequest *request) {
+    request->send(201, "text/plain", "{\"message\":\"OK\"}");
+    setState(WAITING_FOR_OPEN_DOOR);
+  });
+
   // Start server
   server.begin();
 }
 
 void sendMessage(const String message) {
+  if (currentClientId == 0) {
+    Serial.println("Skip send message due to waiting for connection...");
+    return;
+  }
+
   ws.text(currentClientId, message);
   Serial.println(message);
 }
@@ -166,11 +180,11 @@ void sendError(const String error) {
   JSONVar responseData;
   responseData["type"] = "ERROR";
   responseData["message"] = error;
-  String jsonresponseData = JSON.stringify(responseData);
-  sendMessage(jsonresponseData);
+  String jsonResponseData = JSON.stringify(responseData);
+  sendMessage(jsonResponseData);
 }
 
-bool requestGet(const String path, JSONVar& responseObj) {
+bool requestGet(const String serverBaseUrl, const String path, JSONVar& responseObj) {
   bool result = true;
 
   // Verify wifi connection
@@ -178,7 +192,9 @@ bool requestGet(const String path, JSONVar& responseObj) {
     HTTPClient http;
 
     // configure traged server and url
-    String url = SERVER_BASE_URL + path;
+    String url = serverBaseUrl + path;
+    Serial.printf("[HTTP] GET: %s\n", url.c_str());
+
     http.begin(url.c_str());  //HTTP
 
     // start connection and send HTTP header
@@ -191,17 +207,17 @@ bool requestGet(const String path, JSONVar& responseObj) {
         responseObj = JSON.parse(responseJson);
 
         if (JSON.typeof(responseObj) == "undefined") {
-          Serial.println("[HTTP] GET: Parsing response failed!");
+          Serial.println("[HTTP-ERROR] GET: Parsing response failed!");
           sendError("Có lỗi xảy ra");
           result = false;
         }
       } else {
-        Serial.printf("[HTTP] GET: failed, error: %s\n", http.errorToString(httpCode).c_str());
+        Serial.printf("[HTTP-ERROR] GET: Received, error: %d\n", httpCode);
         sendError("Có lỗi xảy ra");
         result = false;
       }
     } else {
-      Serial.printf("[HTTP] GET: failed, error: %s\n", http.errorToString(httpCode).c_str());
+      Serial.printf("[HTTP-ERROR] GET: Can't send request: %d\n", httpCode);
       sendError("Không thể gửi dữ liệu đến server trung tâm");
       result = false;
     }
@@ -218,7 +234,7 @@ bool requestGet(const String path, JSONVar& responseObj) {
   return result;
 }
 
-bool requestPost(const String path, const String bodyJson, JSONVar& responseObj) {
+bool requestPost(const String serverBaseUrl, const String path, const String bodyJson, JSONVar& responseObj) {
   bool result = true;
 
   // Verify wifi connection
@@ -226,7 +242,9 @@ bool requestPost(const String path, const String bodyJson, JSONVar& responseObj)
     HTTPClient http;
 
     // configure traged server and url
-    String url = SERVER_BASE_URL + path;
+    String url = serverBaseUrl + path;
+    Serial.printf("[HTTP] POST: %s\n", url.c_str());
+
     http.begin(url.c_str());  //HTTP
 
     // Add headers
@@ -239,25 +257,22 @@ bool requestPost(const String path, const String bodyJson, JSONVar& responseObj)
 
     // httpCode will be negative on error
     if (httpCode > 0) {
-      // // HTTP header has been send and Server response header has been handled
-      // Serial.printf("[HTTP] POST... code: %d\n", httpCode);
-
       if (httpCode == 201) {
         String responseJson = http.getString();
         responseObj = JSON.parse(responseJson);
 
         if (JSON.typeof(responseObj) == "undefined") {
-          Serial.println("[HTTP] POST: Parsing response failed!");
+          Serial.println("[HTTP-ERROR] POST: Parsing response failed!");
           sendError("Có lỗi xảy ra");
           result = false;
         }
       } else {
-        Serial.printf("[HTTP] POST: failed, error: %s\n", http.errorToString(httpCode).c_str());
+        Serial.printf("[HTTP-ERROR] POST: Received: %d\n", httpCode);
         sendError("Có lỗi xảy ra");
         result = false;
       }
     } else {
-      Serial.printf("[HTTP] POST: failed, error: %s\n", http.errorToString(httpCode).c_str());
+      Serial.printf("[HTTP-ERROR] POST: Can't send request: %d\n", httpCode);
       sendError("Không thể gửi dữ liệu đến server trung tâm");
       result = false;
     }
@@ -278,8 +293,8 @@ void setState(State newState) {
   JSONVar responseData;
   responseData["type"] = "SET_STATE";
   responseData["state"] = stateToString(newState);
-  String jsonresponseData = JSON.stringify(responseData);
-  sendMessage(jsonresponseData);
+  String jsonResponseData = JSON.stringify(responseData);
+  sendMessage(jsonResponseData);
 }
 
 bool checkDoor() {
@@ -331,6 +346,7 @@ void loop() {
     return breakLoop();
   } 
   
+  // Get sensors data
   bool isDoorOpened = checkDoor();
   double height = getHeight();
 
@@ -342,97 +358,9 @@ void loop() {
   String jsonSensorData = JSON.stringify(sensorData);
   sendMessage(jsonSensorData);
 
-  // Check door
-  if (isDoorOpened && state != OPENING_DOOR) {
-    setState(OPENING_DOOR);
-    beginTime = millis();
-
-    return breakLoop();
-  }
-
   if (state == IDLE) {
-    previousHeight = height;
-  }
-
-  if (state == OPENING_DOOR && !isDoorOpened) {
-    setState(COLLECTING_DATA);
     beginTime = millis();
-
     return breakLoop();
-  }
-
-  if (state == COLLECTING_DATA) {
-    double sumHeight = 0;
-    String wasteTypePredictions[5];
-    JSONVar wasteTypePredictionsCount;
-    for (int i = 0; i < 5; ++i) {
-      // Capture & classify image
-      JSONVar captureAndClassifyResponseData;
-      if (!requestGet("/smart-recycle-bin/capture-and-classify", captureAndClassifyResponseData)) return breakLoop();
-      String wasteTypePrediction = captureAndClassifyResponseData["wasteTypePrediction"];
-
-      wasteTypePredictions[i] = wasteTypePrediction;
-      if (JSON.typeof(wasteTypePredictionsCount[wasteTypePrediction]) == "undefined") wasteTypePredictionsCount[wasteTypePrediction] = 1;
-      else wasteTypePredictionsCount[wasteTypePrediction] = ((int) wasteTypePredictionsCount[wasteTypePrediction]) + 1;
-
-      // Calculate height
-      height = getHeight();
-      sumHeight += height;
-      delay(200);
-    }
-    double avgHeight = sumHeight / 5;
-
-    // Get highest wasteType prediction
-    String highestWasteTypePrediction;
-    for (int i = 0; i < 3; ++i) {
-      String wasteTypePrediction = wasteTypePredictions[i];
-      if ((int) wasteTypePredictionsCount[wasteTypePrediction] > (int) wasteTypePredictionsCount[highestWasteTypePrediction])
-        highestWasteTypePrediction = wasteTypePrediction;
-    }
-
-    // Send to server
-    setState(SERVER_PROCESSING);
-
-    JSONVar classifyRequestData;
-    classifyRequestData["volume"] = avgHeight;
-    classifyRequestData["embeddedSystemId"] = EMBEDDED_SYSTEM_ID;
-    classifyRequestData["wasteType"] = highestWasteTypePrediction;
-
-    JSONVar classifyResponseData;
-    if (!requestPost("/smart-recycle-bin/classify", JSON.stringify(classifyRequestData), classifyResponseData)) return breakLoop();
-
-    smartRecycleBinClassificationHistoryId = String(classifyResponseData["smartRecycleBinClassificationHistoryId"]);
-    bool isCorrect = (bool) classifyResponseData["isCorrect"];
-    String token = classifyResponseData["token"];
-
-    if (!isCorrect) {
-      sendError("Phân loại rác chưa đúng");
-      setState(IDLE);
-    }
-
-    JSONVar responseData;
-    responseData["type"] = "BUILD_QR";
-    responseData["isCorrect"] = isCorrect;
-    responseData["token"] = token;
-    String jsonresponseData = JSON.stringify(responseData);
-    sendMessage(jsonresponseData);
-
-    setState(CLAIM_REWARD);
-  }
-
-  if (state == CLAIM_REWARD) {
-    JSONVar checkClaimRequestData;
-    checkClaimRequestData["smartRecycleBinClassificationHistoryId"] = smartRecycleBinClassificationHistoryId;
-
-    JSONVar checkClaimResponseData;
-    bool isRequestedSuccess = requestPost("/smart-recycle-bin/check-claim-reward", JSON.stringify(checkClaimRequestData), checkClaimResponseData);
-    if (isRequestedSuccess) {
-      bool isClaimed = checkClaimResponseData["isClaimed"];
-      if (isClaimed) {
-        sendMessage("Cảm ơn đã sử dụng thùng rác thông minh!");
-        setState(IDLE);
-      }
-    }
   }
 
   if (state != IDLE) {
@@ -444,6 +372,82 @@ void loop() {
 
       return breakLoop();
     } 
+  }
+
+  // Check door
+  if (state == WAITING_FOR_OPEN_DOOR && isDoorOpened) {
+    previousHeight = height;
+    setState(OPENING_DOOR);
+    beginTime = millis();
+    return breakLoop();
+  }
+
+  if (state == OPENING_DOOR && !isDoorOpened) {
+    setState(COLLECTING_DATA);
+    beginTime = millis();
+    return breakLoop();
+  }
+
+  if (state == COLLECTING_DATA) {
+    double sumHeight = 0;
+    String wasteTypePredictions[5];
+    JSONVar wasteTypePredictionsCount;
+    for (int i = 0; i < 5; ++i) {
+      // Calculate height
+      height = getHeight();
+      sumHeight += height;
+
+      delay(100);
+    }
+    double avgHeight = sumHeight / 5;
+
+    // Submit data to server
+    JSONVar submitRequestData;
+    submitRequestData["volume"] = avgHeight;
+    submitRequestData["embeddedSystemId"] = EMBEDDED_SYSTEM_ID;
+    submitRequestData["isCorrect"] = true;
+
+    JSONVar submitResponseData;
+    if (!requestPost(SERVER_BASE_URL, "/smart-recycle-bin/submit", JSON.stringify(submitRequestData), submitResponseData)) return breakLoop();
+
+    smartRecycleBinClassificationHistoryId = String(submitResponseData["smartRecycleBinClassificationHistoryId"]);
+    String token = submitResponseData["token"];
+
+    JSONVar responseData;
+    responseData["type"] = "BUILD_QR";
+    responseData["token"] = token;
+    String jsonResponseData = JSON.stringify(responseData);
+    sendMessage(jsonResponseData);
+
+    setState(CLAIM_REWARD);
+    beginTime = millis();
+    return breakLoop();
+  }
+
+  if (state == CLAIM_REWARD) {
+    JSONVar checkClaimRequestData;
+    checkClaimRequestData["smartRecycleBinClassificationHistoryId"] = smartRecycleBinClassificationHistoryId;
+
+    JSONVar checkClaimResponseData;
+    if(!requestPost(SERVER_BASE_URL, "/smart-recycle-bin/check-claim-reward", JSON.stringify(checkClaimRequestData), checkClaimResponseData)) return breakLoop();
+    bool isClaimed = checkClaimResponseData["isClaimed"];
+    if (isClaimed) {
+      checkClaimResponseData["type"] = "CLAIMED_REWARD";
+      String jsonCheckClaimResponseData = JSON.stringify(checkClaimResponseData);
+      sendMessage(jsonCheckClaimResponseData);
+
+      setState(REQUESTING_FINISH);
+      beginTime = millis();
+      return breakLoop();
+    }
+  }
+
+  if (state == REQUESTING_FINISH) {
+    JSONVar openDoorResponseData;
+    if (!requestPost(FRONT_ESP32_URL, "/finish-esp32-main", "", openDoorResponseData)) return breakLoop();
+    setState(IDLE);
+    beginTime = millis();
+    return breakLoop();
   }
 
   return breakLoop();

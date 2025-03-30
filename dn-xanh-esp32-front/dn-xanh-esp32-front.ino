@@ -14,21 +14,22 @@ enum State { IDLE,
              COLLECTING_DATA,
              REQUESTING_OPEN_DOOR,
              WAITING_ESP32_MAIN,
+             REMINDING,
              FINISHING };
 const unsigned long TIMEOUT = 30000;
 const String SERVER_BASE_URL = "http://api.danangxanh.top/api";
-const String CAMERA_BASE_URL = "http://192.168.137.101";
-const String ORGANIC_ESP32_URL = "http://192.168.137.20";
-const String RECYCLABLE_ESP32_URL = "http://192.168.137.30";
-const String NON_RECYCLABLE_ESP32_URL = "http://192.168.137.40";
+const String CAMERA_BASE_URL = "http://192.168.100.101";
+const String ORGANIC_ESP32_URL = "http://192.168.100.20";
+const String RECYCLABLE_ESP32_URL = "http://192.168.100.30";
+const String NON_RECYCLABLE_ESP32_URL = "http://192.168.100.40";
 
 // Wifi config
-const char *SSID = "minh_nguyenanh";
+const char *SSID = "MERCUSYS_DCE1";
 const char *PASSWORD = "123456789";
 
 // Static IP config
-IPAddress localIP(192, 168, 137, 100);
-IPAddress gateway(192, 168, 137, 1);
+IPAddress localIP(192, 168, 100, 100);
+IPAddress gateway(192, 168, 100, 1);
 IPAddress subnet(255, 255, 255, 0);
 IPAddress primaryDNS(8, 8, 8, 8);
 IPAddress secondaryDNS(8, 8, 4, 4);
@@ -57,6 +58,9 @@ String stateToString(State state) {
 
     case WAITING_ESP32_MAIN:
       return "WAITING_ESP32_MAIN";
+
+    case REMINDING:
+      return "REMINDING";
 
     case FINISHING:
       return "FINISHING";
@@ -160,6 +164,16 @@ void setup() {
   // Web Server Root URL
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
     request->send(200, "text/plain", "DN Xanh Embedded System Front: " + EMBEDDED_SYSTEM_FRONT_ID);
+  });
+
+  server.on("/timeout-esp32-main", HTTP_POST, [](AsyncWebServerRequest *request) {
+    request->send(201, "text/plain", "{\"message\":\"OK\"}");
+    setState(IDLE);
+  });
+
+  server.on("/remind-esp32-main", HTTP_POST, [](AsyncWebServerRequest *request) {
+    request->send(201, "text/plain", "{\"message\":\"OK\"}");
+    setState(REMINDING);
   });
 
   server.on("/finish-esp32-main", HTTP_POST, [](AsyncWebServerRequest *request) {
@@ -375,7 +389,7 @@ void loop() {
       // Capture & classify image
       JSONVar captureAndClassifyResponseData;
       if (!requestGet(CAMERA_BASE_URL, "/capture-and-classify", captureAndClassifyResponseData)) return breakLoop();
-      
+
       // if (!captureAndClassifyResponseData["shouldClassification"]) {
       //   JSONVar warningData;
       //   warningData["type"] = "SENSORS_DATA";
@@ -391,7 +405,7 @@ void loop() {
       else wasteTypePredictionsCount[wasteTypePrediction] = ((int)wasteTypePredictionsCount[wasteTypePrediction]) + 1;
 
       String prediction = captureAndClassifyResponseData["prediction"];
-      Serial.printf("Prediction: %s\n", prediction);
+      Serial.printf("Prediction: %s\n", prediction.c_str());
       if (prediction == "nilon-bag") {
         nilonBagCount += 1;
       }
@@ -411,10 +425,13 @@ void loop() {
       if ((int)wasteTypePredictionsCount[wasteTypePrediction] > (int)wasteTypePredictionsCount[highestWasteTypePrediction])
         highestWasteTypePrediction = wasteTypePrediction;
     }
-    Serial.printf("Kết quả phân loại rác: %s\n", highestWasteTypePrediction);
+    Serial.printf("Kết quả phân loại rác: %s\n", highestWasteTypePrediction.c_str());
 
     // Prepare ESP32 Main URL for calling
     esp32Url = wasteTypeToEsp32Url(highestWasteTypePrediction);
+    // Serial.println(esp32Url);
+
+    // setState(IDLE);
 
     setState(REQUESTING_OPEN_DOOR);
     beginTime = millis();
@@ -431,6 +448,13 @@ void loop() {
 
   if (state == WAITING_ESP32_MAIN) {
     Serial.println("Waiting for ESP32 main...");
+    return breakLoop();
+  }
+
+  if (state == REMINDING) {
+    Serial.println("Reminding ...");
+    delay(4000);
+    setState(IDLE);
     return breakLoop();
   }
 

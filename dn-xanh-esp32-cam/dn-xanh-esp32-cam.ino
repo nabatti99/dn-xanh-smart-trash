@@ -37,12 +37,12 @@
 // Enter your WiFi credentials
 // ===========================
 // Wifi config
-const char* SSID = "minh_nguyenanh";
-const char* PASSWORD = "123456789";
+const char *SSID = "MERCUSYS_DCE1";
+const char *PASSWORD = "123456789";
 
 // Static IP config
-IPAddress localIP(192, 168, 137, 101); // Change it
-IPAddress gateway(192, 168, 137, 1);
+IPAddress localIP(192, 168, 100, 101); // Change it
+IPAddress gateway(192, 168, 100, 1);
 IPAddress subnet(255, 255, 255, 0);
 IPAddress primaryDNS(8, 8, 8, 8);
 IPAddress secondaryDNS(8, 8, 4, 4);

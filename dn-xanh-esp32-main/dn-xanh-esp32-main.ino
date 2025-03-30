@@ -9,23 +9,30 @@
 #define DOOR_ECHO_PIN 23
 #define SOUND_TRIGGER_PIN 5
 #define SOUND_ECHO_PIN 18
+#define LED_PIN 17
 
 // Constants
-const String EMBEDDED_SYSTEM_ID = "DN-SMT-001_ORGANIC"; // Change it
-const String WASTE_TYPE = "ORGANIC"; // Change it
-enum State {IDLE, WAITING_FOR_OPEN_DOOR, OPENING_DOOR, COLLECTING_DATA, CLAIM_REWARD, REQUESTING_FINISH};
+const String EMBEDDED_SYSTEM_ID = "DN-SMT-001_NON_RECYCLABLE";  // Change it
+const String WASTE_TYPE = "NON_RECYCLABLE";                     // Change it
+enum State { IDLE,
+             WAITING_FOR_OPEN_DOOR,
+             OPENING_DOOR,
+             COLLECTING_DATA,
+             CLAIM_REWARD,
+             REQUESTING_FINISH };
 const double SOUND_SPEED = 0.034;
 const unsigned long TIMEOUT = 30000;
 const String SERVER_BASE_URL = "http://api.danangxanh.top/api";
-const String FRONT_ESP32_URL = "http://192.168.137.100";
+const String FRONT_ESP32_URL = "http://192.168.100.100";
 
 // Wifi config
-const char* SSID = "minh_nguyenanh";
-const char* PASSWORD = "123456789";
+const char *SSID = "MERCUSYS_DCE1";
+const char *PASSWORD = "123456789";
+
 
 // Static IP config
-IPAddress localIP(192, 168, 137, 20); // Change it
-IPAddress gateway(192, 168, 137, 1);
+IPAddress localIP(192, 168, 100, 40);  // Change it
+IPAddress gateway(192, 168, 100, 1);
 IPAddress subnet(255, 255, 255, 0);
 IPAddress primaryDNS(8, 8, 8, 8);
 IPAddress secondaryDNS(8, 8, 4, 4);
@@ -63,11 +70,11 @@ String stateToString(State state) {
   }
 }
 
-void WiFiStationConnected(WiFiEvent_t event, WiFiEventInfo_t info){
+void WiFiStationConnected(WiFiEvent_t event, WiFiEventInfo_t info) {
   Serial.println("Connected to AP successfully!");
 }
 
-void WiFiGotIP(WiFiEvent_t event, WiFiEventInfo_t info){
+void WiFiGotIP(WiFiEvent_t event, WiFiEventInfo_t info) {
   Serial.println("WiFi connected");
   isConnectedToWifi = true;
 
@@ -75,7 +82,7 @@ void WiFiGotIP(WiFiEvent_t event, WiFiEventInfo_t info){
   Serial.println(WiFi.localIP());
 }
 
-void WiFiStationDisconnected(WiFiEvent_t event, WiFiEventInfo_t info){
+void WiFiStationDisconnected(WiFiEvent_t event, WiFiEventInfo_t info) {
   Serial.println("Disconnected from WiFi access point");
   Serial.print("WiFi lost connection. Reason: ");
   Serial.println(info.wifi_sta_disconnected.reason);
@@ -106,7 +113,7 @@ void initWiFi() {
 }
 
 void handleWebSocketMessage(void *arg, uint8_t *data, size_t len) {
-  AwsFrameInfo *info = (AwsFrameInfo*)arg;
+  AwsFrameInfo *info = (AwsFrameInfo *)arg;
   if (info->final && info->index == 0 && info->len == len && info->opcode == WS_TEXT) {
     Serial.print("Received message");
   }
@@ -145,12 +152,17 @@ void initSound() {
   pinMode(SOUND_ECHO_PIN, INPUT);
 }
 
+void initLed() {
+  pinMode(LED_PIN, OUTPUT);
+}
+
 void setup() {
   Serial.begin(115200);
   initWiFi();
   initWebSocket();
   initDoor();
   initSound();
+  initLed();
 
   // Web Server Root URL
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
@@ -184,7 +196,7 @@ void sendError(const String error) {
   sendMessage(jsonResponseData);
 }
 
-bool requestGet(const String serverBaseUrl, const String path, JSONVar& responseObj) {
+bool requestGet(const String serverBaseUrl, const String path, JSONVar &responseObj) {
   bool result = true;
 
   // Verify wifi connection
@@ -234,7 +246,7 @@ bool requestGet(const String serverBaseUrl, const String path, JSONVar& response
   return result;
 }
 
-bool requestPost(const String serverBaseUrl, const String path, const String bodyJson, JSONVar& responseObj) {
+bool requestPost(const String serverBaseUrl, const String path, const String bodyJson, JSONVar &responseObj) {
   bool result = true;
 
   // Verify wifi connection
@@ -310,18 +322,26 @@ double getHeight() {
   digitalWrite(SOUND_TRIGGER_PIN, HIGH);
   delayMicroseconds(10);
   digitalWrite(SOUND_TRIGGER_PIN, LOW);
-  
+
   // Reads the echoPin, returns the sound wave travel time in microseconds
   unsigned long soundDuration = pulseIn(SOUND_ECHO_PIN, HIGH);
-  
+
   // Calculate the distance
-  double distanceCm = soundDuration * SOUND_SPEED/2;
-  
+  double distanceCm = soundDuration * SOUND_SPEED / 2;
+
   // Prints the distance in the Serial Monitor
   // Serial.print("Distance (cm): ");
   // Serial.println(distanceCm);
 
   return distanceCm;
+}
+
+void setLed(bool isOn) {
+  if (isOn) {
+    digitalWrite(LED_PIN, HIGH);
+  } else {
+    digitalWrite(LED_PIN, LOW);
+  }
 }
 
 void breakLoop() {
@@ -344,8 +364,8 @@ void loop() {
     state = IDLE;
 
     return breakLoop();
-  } 
-  
+  }
+
   // Get sensors data
   bool isDoorOpened = checkDoor();
   double height = getHeight();
@@ -358,23 +378,37 @@ void loop() {
   String jsonSensorData = JSON.stringify(sensorData);
   sendMessage(jsonSensorData);
 
-  if (state == IDLE) {
-    beginTime = millis();
-    return breakLoop();
-  }
-
   if (state != IDLE) {
+    setLed(true);
+
     // Check timeout
     unsigned long processingTimeConsumed = millis() - beginTime;
     if (processingTimeConsumed > TIMEOUT) {
+      JSONVar timeoutResponseData;
+      if (!requestPost(FRONT_ESP32_URL, "/timeout-esp32-main", "", timeoutResponseData)) return breakLoop();
+
       sendError("Đã quá thời gian chờ");
       setState(IDLE);
 
       return breakLoop();
-    } 
+    }
   }
 
   // Check door
+  if (state == IDLE) {
+    setLed(false);
+
+    if (isDoorOpened) {
+      JSONVar openDoorResponseData;
+      if (!requestPost(FRONT_ESP32_URL, "/remind-esp32-main", "", openDoorResponseData)) return breakLoop();
+
+      setState(IDLE);
+    }
+
+    beginTime = millis();
+    return breakLoop();
+  }
+
   if (state == WAITING_FOR_OPEN_DOOR && isDoorOpened) {
     previousHeight = height;
     setState(OPENING_DOOR);
@@ -429,7 +463,7 @@ void loop() {
     checkClaimRequestData["smartRecycleBinClassificationHistoryId"] = smartRecycleBinClassificationHistoryId;
 
     JSONVar checkClaimResponseData;
-    if(!requestPost(SERVER_BASE_URL, "/smart-recycle-bin/check-claim-reward", JSON.stringify(checkClaimRequestData), checkClaimResponseData)) return breakLoop();
+    if (!requestPost(SERVER_BASE_URL, "/smart-recycle-bin/check-claim-reward", JSON.stringify(checkClaimRequestData), checkClaimResponseData)) return breakLoop();
     bool isClaimed = checkClaimResponseData["isClaimed"];
     if (isClaimed) {
       checkClaimResponseData["type"] = "CLAIMED_REWARD";

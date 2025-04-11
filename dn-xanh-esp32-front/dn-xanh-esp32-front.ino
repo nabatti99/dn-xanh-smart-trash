@@ -6,7 +6,8 @@
 #include <HTTPClient.h>
 
 // Define pins
-#define INFRARED_SENSOR_PIN 5
+#define TRIG_PIN 5
+#define ECHO_PIN 18
 
 // Constants
 const String EMBEDDED_SYSTEM_FRONT_ID = "DN-SMT-001_FRONT";  // Change it
@@ -152,7 +153,8 @@ void initWebSocket() {
 }
 
 void initInfraredSensor() {
-  pinMode(INFRARED_SENSOR_PIN, INPUT);
+  pinMode(TRIG_PIN, OUTPUT);
+  pinMode(ECHO_PIN, INPUT);
 }
 
 void setup() {
@@ -237,7 +239,7 @@ bool requestGet(const String serverBaseUrl, const String path, JSONVar &response
       }
     } else {
       Serial.printf("[HTTP-ERROR] GET: Can't send request: %d\n", httpCode);
-      sendError("Không thể gửi dữ liệu đến server trung tâm");
+      sendError("Kết nối camera không thành công");
       result = false;
     }
 
@@ -317,8 +319,15 @@ void setState(State newState) {
 }
 
 bool checkInfraredSensor() {
-  const bool hasObject = digitalRead(INFRARED_SENSOR_PIN) == LOW;
-  return hasObject;
+  digitalWrite(TRIG_PIN, LOW);
+  delayMicroseconds(2);
+  digitalWrite(TRIG_PIN, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(TRIG_PIN, LOW);
+  long duration = pulseIn(ECHO_PIN, HIGH);
+  float distance = duration * 0.034 / 2; 
+  if (distance > 10) return false; // No object detected
+  return true;
 }
 
 void breakLoop() {
@@ -333,7 +342,7 @@ void loop() {
 
   // Verify wifi connection
   if (!isConnectedToWifi) return breakLoop();
-
+  
   // Verify websocket connection
   if (currentClientId == 0) {
     Serial.println("Waiting for client connect...");

@@ -31,7 +31,7 @@ const char *PASSWORD = "123456789";
 
 
 // Static IP config
-IPAddress localIP(192, 168, 100, 40);  // Change it
+IPAddress localIP(192, 168, 100, 20);  // Change it
 IPAddress gateway(192, 168, 100, 1);
 IPAddress subnet(255, 255, 255, 0);
 IPAddress primaryDNS(8, 8, 8, 8);
@@ -188,13 +188,22 @@ void sendMessage(const String message) {
   Serial.println(message);
 }
 
-void sendError(const String error) {
+// void sendError(const String error) {
+//   JSONVar responseData;
+//   responseData["type"] = "ERROR";
+//   responseData["message"] = error;
+//   String jsonResponseData = JSON.stringify(responseData);
+//   sendMessage(jsonResponseData);
+// }
+void sendError(const String& error, const String& errorCode = "GENERIC_ERROR") {
   JSONVar responseData;
   responseData["type"] = "ERROR";
+  responseData["code"] = errorCode;
   responseData["message"] = error;
   String jsonResponseData = JSON.stringify(responseData);
   sendMessage(jsonResponseData);
 }
+
 
 bool requestGet(const String serverBaseUrl, const String path, JSONVar &responseObj) {
   bool result = true;

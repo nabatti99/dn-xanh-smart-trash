@@ -492,7 +492,7 @@ static esp_err_t capture_handler(httpd_req_t *req) {
 #endif
 }
 
-bool requestPostUploadAndClassifyImage(uint8_t* imageBuffer, const int imageBufferLength, JSONVar& responseObj) {
+bool requestPostCaptureAndClassifyImage(uint8_t* imageBuffer, const int imageBufferLength, JSONVar& responseObj) {
   bool result = true;
 
   HTTPClient http;
@@ -538,7 +538,7 @@ bool requestPostUploadAndClassifyImage(uint8_t* imageBuffer, const int imageBuff
   return result;
 }
 
-static esp_err_t capture_and_upload_handler(httpd_req_t *req) {
+static esp_err_t capture_and_classify_handler(httpd_req_t *req) {
   camera_fb_t *fb = NULL;
   esp_err_t res = ESP_OK;
 
@@ -557,16 +557,8 @@ static esp_err_t capture_and_upload_handler(httpd_req_t *req) {
     return ESP_FAIL;
   }
 
-  // // Configure HTTP client
-  // HTTPClient http;
-  // http.begin("https://api.danangxanh.top/api/smart-recycle-bin/upload-and-classify"); // Change it
-  // http.addHeader("Content-Type", "image/jpeg");
-  // http.addHeader("Content-Disposition", "inline; filename=capture.jpg");
-  // http.addHeader("Content-Length", String(fb->len).c_str());
-  // int httpResponseCode = http.POST(fb->buf, fb->len); // Send image buffer
-
   JSONVar responseData;
-  bool isSuccess = requestPostUploadAndClassifyImage(fb->buf, fb->len, responseData);
+  bool isSuccess = requestPostCaptureAndClassifyImage(fb->buf, fb->len, responseData);
 
   esp_camera_fb_return(fb);
 
@@ -1301,10 +1293,10 @@ void startCameraServer() {
 #endif
   };
 
-  httpd_uri_t capture_and_upload_uri = {
-    .uri = "/capture_and_upload",
+  httpd_uri_t capture_and_classify_uri = {
+    .uri = "/capture-and-classify",
     .method = HTTP_GET,
-    .handler = capture_and_upload_handler,
+    .handler = capture_and_classify_handler,
     .user_ctx = NULL
   };
 
@@ -1413,7 +1405,7 @@ void startCameraServer() {
     httpd_register_uri_handler(camera_httpd, &cmd_uri);
     httpd_register_uri_handler(camera_httpd, &status_uri);
     httpd_register_uri_handler(camera_httpd, &capture_uri);
-    httpd_register_uri_handler(camera_httpd, &capture_and_upload_uri);
+    httpd_register_uri_handler(camera_httpd, &capture_and_classify_uri);
     httpd_register_uri_handler(camera_httpd, &bmp_uri);
 
     httpd_register_uri_handler(camera_httpd, &xclk_uri);

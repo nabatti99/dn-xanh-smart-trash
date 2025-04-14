@@ -16,9 +16,9 @@ enum State { IDLE,
              REQUESTING_OPEN_DOOR,
              WAITING_ESP32_MAIN,
              REMINDING,
-             FINISHING };
+             THANKS };
 const unsigned long TIMEOUT = 30000;
-const String SERVER_BASE_URL = "http://api.danangxanh.top/api";
+const String SERVER_BASE_URL = "http://api-dnx.passgenix.com/api";
 const String CAMERA_BASE_URL = "http://192.168.100.101";
 const String ORGANIC_ESP32_URL = "http://192.168.100.20";
 const String RECYCLABLE_ESP32_URL = "http://192.168.100.30";
@@ -63,8 +63,8 @@ String stateToString(State state) {
     case REMINDING:
       return "REMINDING";
 
-    case FINISHING:
-      return "FINISHING";
+    case THANKS:
+      return "THANKS";
   }
 }
 
@@ -180,7 +180,7 @@ void setup() {
 
   server.on("/finish-esp32-main", HTTP_POST, [](AsyncWebServerRequest *request) {
     request->send(201, "text/plain", "{\"message\":\"OK\"}");
-    setState(FINISHING);
+    setState(THANKS);
   });
 
   // Start server
@@ -467,7 +467,7 @@ void loop() {
     return breakLoop();
   }
 
-  if (state == FINISHING) {
+  if (state == THANKS) {
     Serial.println("Finishing session ...");
     delay(4000);
     setState(IDLE);

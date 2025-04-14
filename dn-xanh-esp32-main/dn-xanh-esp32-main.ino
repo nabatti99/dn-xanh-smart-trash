@@ -12,8 +12,8 @@
 #define LED_PIN 17
 
 // Constants
-const String EMBEDDED_SYSTEM_ID = "DN-SMT-001_NON_RECYCLABLE";  // Change it
-const String WASTE_TYPE = "NON_RECYCLABLE";                     // Change it
+const String EMBEDDED_SYSTEM_ID = "DN-SMT-001_RECYCLABLE";  // Change it
+const String WASTE_TYPE = "RECYCLABLE";                     // Change it
 enum State { IDLE,
              WAITING_FOR_OPEN_DOOR,
              OPENING_DOOR,
@@ -22,7 +22,7 @@ enum State { IDLE,
              REQUESTING_FINISH };
 const double SOUND_SPEED = 0.034;
 const unsigned long TIMEOUT = 30000;
-const String SERVER_BASE_URL = "http://api.danangxanh.top/api";
+const String SERVER_BASE_URL = "http://api-dnx.passgenix.com/api";
 const String FRONT_ESP32_URL = "http://192.168.100.100";
 
 // Wifi config
@@ -31,7 +31,7 @@ const char *PASSWORD = "123456789";
 
 
 // Static IP config
-IPAddress localIP(192, 168, 100, 20);  // Change it
+IPAddress localIP(192, 168, 100, 30);  // Change it
 IPAddress gateway(192, 168, 100, 1);
 IPAddress subnet(255, 255, 255, 0);
 IPAddress primaryDNS(8, 8, 8, 8);

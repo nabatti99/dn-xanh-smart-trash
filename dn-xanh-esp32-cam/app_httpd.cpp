@@ -498,7 +498,7 @@ bool requestPostCaptureAndClassifyImage(uint8_t* imageBuffer, const int imageBuf
   HTTPClient http;
 
   // configure traged server and url
-  String url = "http://api.danangxanh.top/api/smart-recycle-bin/upload-and-classify";
+  String url = "http://api-dnx.passgenix.comp/api/smart-recycle-bin/upload-and-classify";
   http.begin(url.c_str());  //HTTP
 
   // Add headers
